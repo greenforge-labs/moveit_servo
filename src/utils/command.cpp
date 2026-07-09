@@ -205,15 +205,18 @@ JointDeltaResult jointDeltaFromTwist(const TwistCommand& command, const moveit::
     if (status != StatusCode::INVALID)
     {
       joint_position_delta = delta_result.second;
-      // Get velocity scaling information for singularity.
-      const auto singularity_scaling_info =
-          velocityScalingFactorForSingularity(robot_state, cartesian_position_delta, servo_params);
-      // Apply velocity scaling for singularity, if there was any scaling.
-      if (singularity_scaling_info.second != StatusCode::NO_WARNING)
+      if (servo_params.check_singularity)
       {
-        status = singularity_scaling_info.second;
-        RCLCPP_WARN_STREAM(getLogger(), SERVO_STATUS_CODE_MAP.at(status));
-        joint_position_delta *= singularity_scaling_info.first;
+        // Get velocity scaling information for singularity.
+        const auto singularity_scaling_info =
+            velocityScalingFactorForSingularity(robot_state, cartesian_position_delta, servo_params);
+        // Apply velocity scaling for singularity, if there was any scaling.
+        if (singularity_scaling_info.second != StatusCode::NO_WARNING)
+        {
+          status = singularity_scaling_info.second;
+          RCLCPP_WARN_STREAM(getLogger(), SERVO_STATUS_CODE_MAP.at(status));
+          joint_position_delta *= singularity_scaling_info.first;
+        }
       }
     }
   }
@@ -284,15 +287,18 @@ JointDeltaResult jointDeltaFromPose(const PoseCommand& command, const moveit::co
   if (status != StatusCode::INVALID)
   {
     joint_position_delta = delta_result.second;
-    // Get velocity scaling information for singularity.
-    const auto singularity_scaling_info =
-        velocityScalingFactorForSingularity(robot_state, cartesian_position_delta, servo_params);
-    // Apply velocity scaling for singularity, if there was any scaling.
-    if (singularity_scaling_info.second != StatusCode::NO_WARNING)
+    if (servo_params.check_singularity)
     {
-      status = singularity_scaling_info.second;
-      RCLCPP_WARN_STREAM(getLogger(), SERVO_STATUS_CODE_MAP.at(status));
-      joint_position_delta *= singularity_scaling_info.first;
+      // Get velocity scaling information for singularity.
+      const auto singularity_scaling_info =
+          velocityScalingFactorForSingularity(robot_state, cartesian_position_delta, servo_params);
+      // Apply velocity scaling for singularity, if there was any scaling.
+      if (singularity_scaling_info.second != StatusCode::NO_WARNING)
+      {
+        status = singularity_scaling_info.second;
+        RCLCPP_WARN_STREAM(getLogger(), SERVO_STATUS_CODE_MAP.at(status));
+        joint_position_delta *= singularity_scaling_info.first;
+      }
     }
   }
   return std::make_pair(status, joint_position_delta);

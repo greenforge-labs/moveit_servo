@@ -271,6 +271,15 @@ servo:
 
 ############################# SINGULARITY CHECKING #############################
 
+  check_singularity: {
+    type: bool,
+    default_value: true,
+    description: "If false, singularity condition-number checking and velocity scaling are skipped entirely. \
+                  Useful for move groups with fewer than 6 joints, where the condition-number computation \
+                  indexes past the Jacobian's singular values (see moveit/moveit2 singularity scaling for \
+                  sub-6-DOF groups) and its scaling/halting misfires."
+  }
+
   lower_singularity_threshold: {
     type: double,
     default_value: 17.0,
