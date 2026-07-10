@@ -24,7 +24,9 @@ Kept intentionally minimal — one reviewable patch on top of the pristine impor
    bounds (undefined behaviour in release builds; garbage condition numbers that can
    spuriously scale or halt motion regardless of threshold configuration). Setting the
    thresholds high does **not** avoid this, because the computation runs before the
-   comparison. This has been reported upstream.
+   comparison. An upstream fix is in review at
+   [moveit/moveit2#3750](https://github.com/moveit/moveit2/pull/3750); once it ships in a
+   release this fork can be retired.
 
 2. **Launch-based integration tests off by default** (`MOVEIT_SERVO_LAUNCH_TESTS=OFF`).
    The `launch_testing`-based tests error at collection in environments that disable
