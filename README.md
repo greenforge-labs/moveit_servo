@@ -33,6 +33,19 @@ Kept intentionally minimal — one reviewable patch on top of the pristine impor
    pytest plugin autoloading or ship pytest ≥ 9. Re-enable with
    `-DMOVEIT_SERVO_LAUNCH_TESTS=ON`.
 
+3. **Catch the `rclcpp::Rate::sleep()` throw at shutdown** in `ServoNode::servoLoop`.
+   Both `servo_frequency.sleep()` calls now run inside a `sleep_or_stop` lambda. The
+   lambda catches `std::runtime_error` and sets `stop_servo_`, so the loop ends on the
+   next condition check.
+
+   Rationale: after `rclcpp::shutdown` invalidates the node context,
+   `rclcpp::Rate::sleep()` throws `std::runtime_error` with the message
+   `context cannot be slept with because it's invalid`. The loop condition
+   `while (rclcpp::ok() && !stop_servo_)` only runs at the top of each pass, so a SIGINT
+   that arrives during the sleep leaves the exception uncaught. `std::terminate` then
+   runs and the process exits with SIGABRT. See
+   [greenforge-labs/anvil#807](https://github.com/greenforge-labs/anvil/issues/807).
+
 ## Updating to a new upstream release
 
 ```bash

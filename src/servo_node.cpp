@@ -47,6 +47,8 @@
 #include <moveit/utils/logger.hpp>
 #include <moveit_servo/servo_node.hpp>
 
+#include <stdexcept>
+
 namespace moveit_servo
 {
 
@@ -343,13 +345,26 @@ void ServoNode::servoLoop()
   const moveit::core::JointModelGroup* joint_model_group =
       robot_state->getJointModelGroup(servo_params_.move_group_name);
 
+  // rclcpp::Rate::sleep() throws std::runtime_error once rclcpp::shutdown has invalidated the
+  // context. A SIGINT that lands inside the sleep must end the loop, not terminate the process.
+  const auto sleep_or_stop = [&servo_frequency, this]() {
+    try
+    {
+      servo_frequency.sleep();
+    }
+    catch (const std::runtime_error&)
+    {
+      stop_servo_ = true;
+    }
+  };
+
   while (rclcpp::ok() && !stop_servo_)
   {
     // Skip processing if servoing is disabled.
     if (servo_paused_)
     {
       servo_->resetSmoothing(current_state);
-      servo_frequency.sleep();
+      sleep_or_stop();
       continue;
     }
 
@@ -427,7 +442,7 @@ void ServoNode::servoLoop()
       status_publisher_->publish(status_msg);
     }
 
-    servo_frequency.sleep();
+    sleep_or_stop();
   }
 }
 
