@@ -41,6 +41,8 @@
 #include <rclcpp/rclcpp.hpp>
 #include <moveit/utils/logger.hpp>
 
+#include <stdexcept>
+
 namespace moveit_servo
 {
 namespace
@@ -97,6 +99,20 @@ void CollisionMonitor::checkCollisions()
   double self_collision_threshold_delta, scene_collision_threshold_delta;
   double self_collision_scale, scene_collision_scale;
   const double log_val = -log(0.001);
+
+  // rclcpp::Rate::sleep() throws std::runtime_error when the context is already invalid on entry.
+  // A shutdown that lands between the loop condition and the sleep must end the loop, not
+  // terminate the process.
+  const auto sleep_or_stop = [&rate, this]() {
+    try
+    {
+      rate.sleep();
+    }
+    catch (const std::runtime_error&)
+    {
+      stop_requested_ = true;
+    }
+  };
 
   while (rclcpp::ok() && !stop_requested_)
   {
@@ -171,7 +187,7 @@ void CollisionMonitor::checkCollisions()
       collision_velocity_scale_ = 1.0;
     }
 
-    rate.sleep();
+    sleep_or_stop();
   }
 }
 }  // namespace moveit_servo

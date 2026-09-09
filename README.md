@@ -33,6 +33,22 @@ Kept intentionally minimal — one reviewable patch on top of the pristine impor
    pytest plugin autoloading or ship pytest ≥ 9. Re-enable with
    `-DMOVEIT_SERVO_LAUNCH_TESTS=ON`.
 
+3. **Catch the `rclcpp::Rate::sleep()` throw at shutdown.** Both `servo_frequency.sleep()`
+   calls in `ServoNode::servoLoop` and the `rate.sleep()` call in
+   `CollisionMonitor::checkCollisions` now run inside a `sleep_or_stop` lambda. The lambda
+   catches `std::runtime_error` and sets the loop's stop flag, so the loop ends on the next
+   condition check. The wait for the first robot state update in `servoLoop` also ends on
+   `rclcpp::ok()`, and `servoLoop` returns when the context is gone.
+
+   Rationale: `rclcpp::Clock::sleep_until` throws `std::runtime_error` with the message
+   `context cannot be slept with because it's invalid` when the default context is already
+   invalid on entry. A shutdown that lands during a sleep does not throw; the sleep returns.
+   Each loop checks `rclcpp::ok()` only at the top of a pass, so a SIGINT that arrives between
+   that check and the next sleep entry leaves the exception uncaught. `std::terminate` then
+   runs and the process exits with SIGABRT. The collision monitor thread runs even with
+   `check_collisions` false, so it has the same window. See
+   [greenforge-labs/anvil#807](https://github.com/greenforge-labs/anvil/issues/807).
+
 ## Updating to a new upstream release
 
 ```bash
