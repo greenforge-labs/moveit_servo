@@ -329,11 +329,18 @@ void ServoNode::servoLoop()
 
   // wait for first robot joint state update
   const auto servo_node_start = node_->now();
-  while (planning_scene_monitor_->getLastUpdateTime().get_clock_type() != node_->get_clock()->get_clock_type() ||
-         servo_node_start > planning_scene_monitor_->getLastUpdateTime())
+  // The planning scene monitor stops updating once its executor returns at shutdown, so this wait
+  // must also end on rclcpp::ok(), or the destructor's join never returns.
+  while (rclcpp::ok() &&
+         (planning_scene_monitor_->getLastUpdateTime().get_clock_type() != node_->get_clock()->get_clock_type() ||
+          servo_node_start > planning_scene_monitor_->getLastUpdateTime()))
   {
     RCLCPP_INFO(node_->get_logger(), "Waiting to receive robot state update.");
     rclcpp::sleep_for(std::chrono::seconds(1));
+  }
+  if (!rclcpp::ok())
+  {
+    return;
   }
   KinematicState current_state = servo_->getCurrentRobotState(true /* block for current robot state */);
   last_commanded_state_ = current_state;
@@ -345,8 +352,9 @@ void ServoNode::servoLoop()
   const moveit::core::JointModelGroup* joint_model_group =
       robot_state->getJointModelGroup(servo_params_.move_group_name);
 
-  // rclcpp::Rate::sleep() throws std::runtime_error once rclcpp::shutdown has invalidated the
-  // context. A SIGINT that lands inside the sleep must end the loop, not terminate the process.
+  // rclcpp::Rate::sleep() throws std::runtime_error when the context is already invalid on entry.
+  // A shutdown that lands between the loop condition and the sleep must end the loop, not
+  // terminate the process.
   const auto sleep_or_stop = [&servo_frequency, this]() {
     try
     {
