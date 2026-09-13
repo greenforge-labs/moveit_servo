@@ -50,6 +50,12 @@ namespace
 {
 constexpr double ROBOT_STATE_WAIT_TIME = 5.0;  // seconds
 constexpr double STOPPED_VELOCITY_EPS = 1e-4;
+
+bool isFiniteState(const moveit_servo::KinematicState& state)
+{
+  return state.positions.size() == state.velocities.size() && state.positions.size() == state.accelerations.size() &&
+         state.positions.allFinite() && state.velocities.allFinite() && state.accelerations.allFinite();
+}
 }  // namespace
 
 namespace moveit_servo
@@ -159,21 +165,36 @@ void Servo::setSmoothingPlugin()
     RCLCPP_ERROR(logger_, "Smoothing plugin could not be initialized");
     std::exit(EXIT_FAILURE);
   }
+  // The C++ interface can issue commands without ServoNode's initial reset.
+  // Seed the plugin from measured state, never from its constructor defaults.
+  resetSmoothing(extractRobotState(robot_state, servo_params_.move_group_name));
 }
 
 void Servo::doSmoothing(KinematicState& state)
 {
-  if (smoother_)
+  if (!isFiniteState(state) ||
+      (smoother_ && (!smoothing_ready_ ||
+                    !smoother_->doSmoothing(state.positions, state.velocities, state.accelerations))) ||
+      !isFiniteState(state))
   {
-    smoother_->doSmoothing(state.positions, state.velocities, state.accelerations);
+    smoothing_ready_ = false;
+    servo_status_ = StatusCode::INVALID;
   }
 }
 
 void Servo::resetSmoothing(const KinematicState& state)
 {
-  if (smoother_)
+  const bool was_ready = smoothing_ready_;
+  smoothing_ready_ = isFiniteState(state) &&
+                     (!smoother_ || smoother_->reset(state.positions, state.velocities, state.accelerations));
+  if (!smoothing_ready_)
   {
-    smoother_->reset(state.positions, state.velocities, state.accelerations);
+    servo_status_ = StatusCode::INVALID;
+  }
+  else if (!was_ready && servo_status_ == StatusCode::INVALID)
+  {
+    // Clear this recovered fault, without clearing unrelated invalid-command reports.
+    servo_status_ = StatusCode::NO_WARNING;
   }
 }
 
@@ -489,6 +510,21 @@ KinematicState Servo::getNextJointState(const moveit::core::RobotStatePtr& robot
   KinematicState target_state(num_joints);
   target_state.joint_names = joint_names;
 
+  // Do not run kinematics or publish a default/stale anchor after invalid feedback.
+  // ServoNode retries reset from measured state when no valid command is produced.
+  const bool current_state_finite = isFiniteState(current_state);
+  if ((smoother_ && !smoothing_ready_) || !current_state_finite ||
+      !Eigen::Map<const Eigen::VectorXd>(robot_state->getVariablePositions(), robot_state->getVariableCount())
+           .allFinite())
+  {
+    if (!current_state_finite)
+    {
+      smoothing_ready_ = false;
+    }
+    servo_status_ = StatusCode::INVALID;
+    return target_state;
+  }
+
   // Compute the change in joint position due to the incoming command
   Eigen::VectorXd joint_position_delta = jointDeltaFromCommand(command, robot_state);
 
@@ -552,6 +588,13 @@ std::optional<Eigen::Isometry3d> Servo::getPlanningToCommandFrameTransform(const
                                                                            const std::string& planning_frame) const
 {
   const moveit::core::RobotStatePtr robot_state = planning_scene_monitor_->getStateMonitor()->getCurrentState();
+  // This state comes directly from feedback, independently of the commanded rolling window.
+  // Reject it before FK can build a transform containing nonfinite values.
+  if (!Eigen::Map<const Eigen::VectorXd>(robot_state->getVariablePositions(), robot_state->getVariableCount())
+           .allFinite())
+  {
+    return std::nullopt;
+  }
   if (robot_state->knowsFrameTransform(command_frame) && (robot_state->knowsFrameTransform(planning_frame)))
   {
     return robot_state->getGlobalLinkTransform(planning_frame).inverse() *
@@ -663,6 +706,14 @@ KinematicState Servo::getCurrentRobotState(bool block_for_current_state) const
 std::pair<bool, KinematicState> Servo::smoothHalt(const KinematicState& halt_state)
 {
   auto target_state = halt_state;
+
+  if ((smoother_ && !smoothing_ready_) || !isFiniteState(halt_state))
+  {
+    smoothing_ready_ = false;
+    servo_status_ = StatusCode::INVALID;
+    // End processing the stale input. ServoNode suppresses output and retries a measured reset.
+    return std::make_pair(true, target_state);
+  }
 
   // If all velocities are near zero, robot has decelerated to a stop.
   bool stopped = (target_state.velocities.cwiseAbs().array() < STOPPED_VELOCITY_EPS).all();
