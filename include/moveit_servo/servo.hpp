@@ -234,6 +234,8 @@ private:
 
   // Pointer to the (optional) smoothing plugin.
   pluginlib::UniquePtr<online_signal_smoothing::SmoothingBaseClass> smoother_ = nullptr;
+  // A failed reset must suppress commands until a later measured-state reset succeeds.
+  bool smoothing_ready_ = false;
 
   // Map between joint subgroup names and corresponding joint name - move group indices map
   std::unordered_map<std::string, JointNameToMoveGroupIndexMap> joint_name_to_index_maps_;

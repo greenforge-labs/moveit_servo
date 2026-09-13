@@ -11,7 +11,7 @@ packages.
 
 ## Fork delta
 
-Kept intentionally minimal — one reviewable patch on top of the pristine import:
+The fork keeps these changes small and reviewable:
 
 1. **`check_singularity` parameter** (default `true`, i.e. upstream behaviour).
    When `false`, the singularity condition-number check and its velocity scaling/halting
@@ -20,7 +20,7 @@ Kept intentionally minimal — one reviewable patch on top of the pristine impor
    Rationale: `velocityScalingFactorForSingularity` indexes the Jacobian SVD with
    `dims = target_delta_x.size()` (always 6), but for a move group with fewer than
    6 joints the thin SVD of the 6×N Jacobian has only N singular values and a 6×N U
-   matrix — `singularValues()(dims - 1)` and `matrixU().col(dims - 1)` read out of
+   matrix. `singularValues()(dims - 1)` and `matrixU().col(dims - 1)` read out of
    bounds (undefined behaviour in release builds; garbage condition numbers that can
    spuriously scale or halt motion regardless of threshold configuration). Setting the
    thresholds high does **not** avoid this, because the computation runs before the
@@ -48,6 +48,15 @@ Kept intentionally minimal — one reviewable patch on top of the pristine impor
    runs and the process exits with SIGABRT. The collision monitor thread runs even with
    `check_collisions` false, so it has the same window. See
    [greenforge-labs/anvil#807](https://github.com/greenforge-labs/anvil/issues/807).
+
+4. **Respect smoothing reset and update failures.** A failed reset or update sets `INVALID`
+   and suppresses command generation until a valid measured-state reset succeeds.
+   Command state and measured frame transforms are checked for nonfinite positions before kinematics.
+   Invalid samples do not enter the rolling window.
+   Plugins can return failure and recover without fabricated position targets or a process exit.
+   It does not stop an independent downstream controller from holding its previous target.
+   The arm-specific regression is registered in
+   [anvil PR #866](https://github.com/greenforge-labs/anvil/pull/866), which pins this fork.
 
 ## Updating to a new upstream release
 

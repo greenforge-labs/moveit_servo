@@ -371,7 +371,11 @@ void ServoNode::servoLoop()
     // Skip processing if servoing is disabled.
     if (servo_paused_)
     {
-      servo_->resetSmoothing(current_state);
+      {
+        std::lock_guard<std::mutex> lock_guard(lock_);
+        current_state = servo_->getCurrentRobotState(false);
+        servo_->resetSmoothing(current_state);
+      }
       sleep_or_stop();
       continue;
     }
@@ -393,6 +397,9 @@ void ServoNode::servoLoop()
         current_state.velocities *= 0.0;
       }
 
+      // Refresh joints outside the commanded group too. A startup NaN in those joints
+      // must not survive indefinitely in the RobotState used for kinematics.
+      robot_state = planning_scene_monitor_->getStateMonitor()->getCurrentState();
       // update robot state values
       robot_state->setJointGroupPositions(joint_model_group, current_state.positions);
       robot_state->setJointGroupVelocities(joint_model_group, current_state.velocities);
@@ -441,8 +448,16 @@ void ServoNode::servoLoop()
       {
         // if no new command was created, use current robot state
         last_commanded_state_ = current_state = servo_->getCurrentRobotState(false);
-        updateSlidingWindow(current_state, joint_cmd_rolling_window_, servo_params_.max_expected_latency, cur_time);
         servo_->resetSmoothing(current_state);
+        if (servo_->getStatus() == StatusCode::INVALID)
+        {
+          // Invalid measured samples must not contaminate a later recovered trajectory.
+          joint_cmd_rolling_window_.clear();
+        }
+        else
+        {
+          updateSlidingWindow(current_state, joint_cmd_rolling_window_, servo_params_.max_expected_latency, cur_time);
+        }
       }
 
       status_msg.code = static_cast<int8_t>(servo_->getStatus());
